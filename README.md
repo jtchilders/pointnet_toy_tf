@@ -1,2 +1,2 @@
-# pointnet_toy_tf
-Tensorflow version of pointnet toy
+# tensorflow_skeleton
+A customizable Tensorflow skeleton complete with dataset placeholders and model placeholders.
