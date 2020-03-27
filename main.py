@@ -5,7 +5,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 import tensorflow as tf
 from tensorflow.python.client import device_lib
 import data_handler
-import model,lr_func,losses,accuracies
+import model,lr_func,losses
 
 logger = logging.getLogger(__name__)
 
@@ -23,8 +23,8 @@ def main():
    
    parser = argparse.ArgumentParser(description='')
    parser.add_argument('-c','--config',dest='config_filename',help='configuration filename in json format [default: %s]' % DEFAULT_CONFIG,default=DEFAULT_CONFIG)
-   parser.add_argument('--interop',help='set Tensorflow "inter_op_parallelism_threads" session config varaible [default: %s]' % DEFAULT_INTEROP,default=DEFAULT_INTEROP)
-   parser.add_argument('--intraop',help='set Tensorflow "intra_op_parallelism_threads" session config varaible [default: %s]' % DEFAULT_INTRAOP,default=DEFAULT_INTRAOP)
+   parser.add_argument('--interop',type=int,help='set Tensorflow "inter_op_parallelism_threads" session config varaible [default: %s]' % DEFAULT_INTEROP,default=DEFAULT_INTEROP)
+   parser.add_argument('--intraop',type=int,help='set Tensorflow "intra_op_parallelism_threads" session config varaible [default: %s]' % DEFAULT_INTRAOP,default=DEFAULT_INTRAOP)
    parser.add_argument('-l','--logdir',default=DEFAULT_LOGDIR,help='define location to save log information [default: %s]' % DEFAULT_LOGDIR)
 
    parser.add_argument('--horovod', dest='horovod', default=False, action='store_true', help="Use horovod")
@@ -118,10 +118,7 @@ def main():
          logger.info('pred = %s  target = %s',pred.shape,target.shape)
          # pred = BxC, target = BxC
          loss = losses.get_loss(config)(labels=target,logits=pred)
-         tf.compat.v1.summary.scalar('loss/combined',loss)
-
-         # accuracy = accuracies.get_accuracy(pred,target,config)
-         # tf.compat.v1.summary.scalar('accuracy/combined', accuracy)
+         #tf.compat.v1.summary.scalar('loss/combined',loss)
 
          #learning_rate = pointnet_seg.get_learning_rate(batch,config) * hvd.size()
          learning_rate = lr_func.get_learning_rate(batch * batch_size,config)
@@ -168,7 +165,6 @@ def main():
       
       logger.info('running over data')
       status_interval = config['training']['status']
-      total_acc = 0.
       loss_sum = 0.
       for epoch in range(config['training']['epochs']):
          logger.info('epoch %s of %s',epoch + 1,config['training']['epochs'])
@@ -184,25 +180,16 @@ def main():
                feed_dict = {is_training_pl: True}
                summary, step, _, loss_val = sess.run([merged, batch,
                    train_op, loss], feed_dict=feed_dict)
-               
-               # only one rank should write summary or file gets clobbered
-               if hvd and hvd.rank() == 0:
-                  train_writer.add_summary(summary, step)
-               
-               # keep running average of the accuracy and loss for status print
-               loss_sum += loss_val
-               
+                              
                # report status periodically
                if step % status_interval == 0:
                   end = time.time()
                   duration = end - start
-                  logger.info('step: %10d   mean loss: %10.6f   accuracy:  %10.6f  imgs/sec: %10.6f',
+                  logger.info('step: %10d    imgs/sec: %10.6f',
                               step,
-                              loss_sum / float(status_interval),total_acc / float(status_interval),
                               float(status_interval) * config['data']['batch_size'] / duration)
                   start = time.time()
-                  total_acc = 0.
-                  loss_sum = 0.
+                  
             # exception thrown when data is done
             except tf.errors.OutOfRangeError:
                logger.info(' end of epoch ')
@@ -212,8 +199,7 @@ def main():
          logger.info('running validation')
          # initialize the validation data iterator
          sess.run(valid_init_op)
-         total_acc = 0.
-         total_loss = 0.
+         
          steps = 0.
 
          
